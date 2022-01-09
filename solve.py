@@ -22,7 +22,7 @@ def load_arr(length, root=DATA_ROOT, out_format=OUT_FORMAT):
 
 class Res(Enum):
     """
-    Encodes possible results for each letter in a guess, 
+    Encodes possible results for each letter in a guess,
     submit_funcs return a list of these
     """
     CORRECT = 2
@@ -32,7 +32,7 @@ class Res(Enum):
     EMPTY = 4
 
 # Only the following are reasonable results the web should give, others
-# mean something went wrong with the web interface (likely need to 
+# mean something went wrong with the web interface (likely need to
 # make the web interface sleep longer because it moved too fast for the website
 # to keep up)
 VALID_RES = [Res.CORRECT, Res.ABSENT, Res.PRESENT]
@@ -42,7 +42,7 @@ def filtersFromRes(res, guess):
     Given a res from a submit_func, and a guess from a guess_func, this
     compares the two and returns a filterset according to how the res did.
     """
-    fs = FilterSet([(HasLetterInPlace(c, i) if v == Res.CORRECT else 
+    fs = FilterSet([(HasLetterInPlace(c, i) if v == Res.CORRECT else
                     (HasLetter(c) if v == Res.PRESENT else NoLetter(c)))
                     for i, (v,c) in enumerate(zip(res, guess))])
     return fs
@@ -51,7 +51,7 @@ def filtersFromRes(res, guess):
 ############################################################
 # Guess funcs (funcs that take a wordArr and return a word)
 ############################################################
-def randomGuess(wordArr, **kw): 
+def randomGuess(wordArr, **kw):
     """ Choose a random word in wordArr as the guess """
     return wordArr[np.random.choice(len(wordArr))]
 
@@ -87,8 +87,8 @@ SCRABBLE_VALS = {
 SCRABBLE_PTS = {letter:val for val,lets in SCRABBLE_VALS.items() for letter in lets}
 COMMONALITY_METRIC = lambda l: max(SCRABBLE_VALS) + 1 - SCRABBLE_PTS[l]
 
-def scrabbleGuess(wordsArr, fs=None, guess_num=0, 
-                  info_already_penalty=[1/3, 1/3, 1/3, 1/3, 1, 1], 
+def scrabbleGuess(wordsArr, fs=None, guess_num=0,
+                  info_already_penalty=[1/3, 1/3, 1/3, 1/3, 1, 1],
                   **kw):
     letter_info = set([filt.letter for filt in fs])
     info_penalty = info_already_penalty[guess_num]
@@ -100,10 +100,10 @@ def scrabbleGuess(wordsArr, fs=None, guess_num=0,
         return sum([t * p for t,p in zip(terms, penalties)])
 
     return max(wordsArr, key=word_scorer)
-        
+
 
 ############################################################
-# Submit funcs (funcs that take a guess, submit it, 
+# Submit funcs (funcs that take a guess, submit it,
 # and return the result as a list of Res values)
 ############################################################
 
@@ -148,7 +148,7 @@ def trial(word=None, seed=None, nGuess = 6, length=5, stopShort=True, guess_func
     length = len(word) if word else length
     guess_func = guess_func if guess_func else randomGuess
 
-    slv = Solver(guess_func=guess_func, length=length, guesses=guesses, 
+    slv = Solver(guess_func=guess_func, length=length, guesses=guesses,
                  uses_web_interface=False)
 
     if not word:
@@ -165,7 +165,7 @@ def trial(word=None, seed=None, nGuess = 6, length=5, stopShort=True, guess_func
 
 class Solver:
 
-    def __init__(self, 
+    def __init__(self,
                  submit_func=None,
                  guess_func=interactiveGuess,
                  uses_web_interface=True,
@@ -216,7 +216,7 @@ class Solver:
                 # TODO: remove numpy
                 if all([result in VALID_RES for result in res]):
                     break
-                # if bad, remove from wordArr, call submitter with clear=True, 
+                # if bad, remove from wordArr, call submitter with clear=True,
                 # and logging.warn it, then try again
                 else:
                     logging.warn(f"{''.join(guess)} is not in wordle, please remove from corpus.")
@@ -255,8 +255,8 @@ class Solver:
             if all([r in VALID_RES for r in res]):
                 return res
         return res
-        
-       
+
+
 
 # TODO: Think through how this stuff actually works lol
 def getArgs():

@@ -51,9 +51,9 @@ class HasLetterInPlace(Filter):
 
 class FilterSet(set):
     def cleanUp(self):
-        has_letters = set([filt.letter for filt in self 
+        has_letters = set([filt.letter for filt in self
                            if isinstance(filt, (HasLetter, HasLetterInPlace))])
-        bad_no_filts = [filt for filt in self if 
+        bad_no_filts = [filt for filt in self if
                         isinstance(filt, NoLetter) and filt.letter in has_letters]
         for filt in bad_no_filts:
             self.remove(filt)

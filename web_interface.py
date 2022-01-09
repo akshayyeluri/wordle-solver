@@ -67,7 +67,7 @@ class WebInterface:
 
     def retrieve_res(self):
         """
-        Retrieve the results of the last guess, 
+        Retrieve the results of the last guess,
         returned as list of length self.length,
         with one of ('correct', 'absent', 'present', 'empty', 'tbd')
         as each element in the list.
@@ -96,7 +96,7 @@ class WebInterface:
 
     def tryClosePopup(self):
         """
-        An annoying popup sometimes appears in the game, especially when starting / 
+        An annoying popup sometimes appears in the game, especially when starting /
         after the game ends, and this method just closes the popup.
         """
         try:
@@ -126,7 +126,7 @@ class WebInterface:
                                  '.shadowRoot.querySelector("#keyboard")', self._game)
         keys = {but.text: but for but in keyboard.find_elements_by_tag_name('button')}
         keys['DELETE'] = keys.pop('')
-        return keys 
+        return keys
 
 
     def _getGrid(self):
@@ -136,11 +136,11 @@ class WebInterface:
         is a tile html object.
         """
         board = self._game.find_element_by_id('board')
-        rows = [self._exec_js('return arguments[0].shadowRoot.querySelector("div")', row) 
+        rows = [self._exec_js('return arguments[0].shadowRoot.querySelector("div")', row)
                 for row in board.find_elements_by_tag_name('game-row')]
         grid = []
         for row in rows:
-            kids = [self._exec_js('return arguments[0].shadowRoot.querySelector("div")', kid) 
+            kids = [self._exec_js('return arguments[0].shadowRoot.querySelector("div")', kid)
                     for kid in row.find_elements_by_tag_name('game-tile')]
             grid.append(kids)
 
