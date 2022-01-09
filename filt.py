@@ -59,7 +59,6 @@ class FilterSet(set):
             self.remove(filt)
 
     def applyAll(self, wordArr):
-        import pdb; pdb.set_trace()
         self.cleanUp()
         wordArr_np = np.char.array([list(word) for word in wordArr])
         idx = reduce(lambda x,y: x & y, [filt(wordArr_np) for filt in self], True)
