@@ -51,12 +51,12 @@ def filtersFromRes(res, guess):
 ############################################################
 # Guess funcs (funcs that take a wordArr and return a word)
 ############################################################
-def randomGuess(wordArr): 
+def randomGuess(wordArr, **kw): 
     """ Choose a random word in wordArr as the guess """
     return wordArr[np.random.choice(len(wordArr))]
 
 
-def interactiveGuess(wordArr):
+def interactiveGuess(wordArr, **kw):
     """ Asks the user to choose a word interactively from wordArr """
     words = [''.join(word) for word in wordArr]
 
@@ -73,6 +73,34 @@ def interactiveGuess(wordArr):
     return guess
 
 
+
+SCRABBLE_VALS = {
+    1: "AEILNORSTU",
+    2: "DG",
+    3: "BCMP",
+    4: "FHVWY",
+    5: "K",
+    8: "JX",
+    10: "QZ",
+}
+
+SCRABBLE_PTS = {letter:val for val,lets in SCRABBLE_VALS.items() for letter in lets}
+COMMONALITY_METRIC = lambda l: max(SCRABBLE_VALS) + 1 - SCRABBLE_PTS[l]
+
+def scrabbleGuess(wordsArr, fs=None, guess_num=0, 
+                  info_already_penalty=[1/3, 1/3, 1/3, 1/3, 1, 1], 
+                  **kw):
+    letter_info = set([filt.letter for filt in fs])
+    info_penalty = info_already_penalty[guess_num]
+
+    def word_scorer(word):
+        lets = sorted(set(word.upper()))
+        terms = [COMMONALITY_METRIC(letter) for letter in lets]
+        penalties = [info_penalty if letter in letter_info else 1 for letter in lets]
+        return sum([t * p for t,p in zip(terms, penalties)])
+
+    return max(wordsArr, key=word_scorer)
+        
 
 ############################################################
 # Submit funcs (funcs that take a guess, submit it, 
@@ -99,7 +127,7 @@ def compare(known, guess):
     will serve as a submit func, that just submits by comparing the
     guess to the known
     """
-    guess, known = np.char.array(guess), np.char.array(known)
+    guess, known = np.char.array(list(guess)), np.char.array(list(known))
     res = np.where(np.isin(guess, known), Res.PRESENT, Res.ABSENT)
     res[guess == known] = Res.CORRECT
     return list(res)
@@ -177,12 +205,12 @@ class Solver:
 
         fs = FilterSet()
         wordArr = self.wordArr0
-        for _ in range(self.guesses):
-
+        for guess_num in range(self.guesses):
+            #import pdb; pdb.set_trace()
 
             while True:
                 # Get a guess and submit it
-                guess = self.guesser(wordArr)
+                guess = self.guesser(wordArr, fs=fs, guess_num=guess_num)
                 res = self.submitter(guess)
 
                 # TODO: remove numpy
