@@ -8,6 +8,8 @@ from filt import *
 from enum import Enum
 import time
 from pprint import pprint
+from tqdm import tqdm
+import itertools
 
 DATA_ROOT = "/Users/akshayyeluri/code/sandbox/wordle"
 OUT_FORMAT = "length{}.txt"
@@ -51,6 +53,20 @@ def filtersFromRes(res, guess):
 ############################################################
 # Guess funcs (funcs that take a wordArr and return a word)
 ############################################################
+
+def hardCodeGuess(number2GuessMap={}):
+    """
+    Decorator that hard codes a specific guess for a specific
+    guess number
+    """
+    def decorator(guess_func):
+        def wrapped(wordArr, guess_num, **kw):
+            if guess_num in number2GuessMap:
+                return number2GuessMap[guess_num]
+            return guess_func(wordArr, guess_num=guess_num, **kw)
+        return wrapped
+    return decorator
+
 def randomGuess(wordArr, **kw):
     """ Choose a random word in wordArr as the guess """
     return wordArr[np.random.choice(len(wordArr))]
@@ -87,6 +103,8 @@ SCRABBLE_VALS = {
 SCRABBLE_PTS = {letter:val for val,lets in SCRABBLE_VALS.items() for letter in lets}
 COMMONALITY_METRIC = lambda l: max(SCRABBLE_VALS) + 1 - SCRABBLE_PTS[l]
 
+
+@hardCodeGuess(number2GuessMap={ 0: "alien", 1: "torus" })
 def scrabbleGuess(wordsArr, fs=None, guess_num=0,
                   info_already_penalty=[1/3, 1/3, 1/3, 1/3, 1, 1],
                   **kw):
@@ -100,6 +118,23 @@ def scrabbleGuess(wordsArr, fs=None, guess_num=0,
         return sum([t * p for t,p in zip(terms, penalties)])
 
     return max(wordsArr, key=word_scorer)
+
+
+@hardCodeGuess(number2GuessMap={ 0: "alien", 1: "torus"})
+def minOptionGuess(wordArr, fs=None, do_max_not_avg=False, **kw):
+    opts = [0] * len(wordArr)
+    length = len(wordArr[0])
+    func = np.max if do_max_not_avg else np.mean
+
+    for i, word in tqdm(enumerate(wordArr), total=len(wordArr)):
+        cnts = []
+        for res in itertools.product(VALID_RES, repeat=length):
+            fs2 = FilterSet(fs.copy())
+            fs2.update(filtersFromRes(res, word))
+            cnts.append(len(fs2.applyAll(wordArr)))
+        opts[i] = func(cnts)
+
+    return wordArr[np.argmin(opts)]
 
 
 ############################################################
@@ -139,7 +174,11 @@ def compare(known, guess):
 
 # TODO: document
 # TODO: words not in wordlst handling
-def trial(word=None, seed=None, nGuess = 6, length=5, stopShort=True, guess_func=None):
+def trial(word=None, seed=None, nGuess = 6, length=5, stopShort=True, guess_func=None, debugger=False):
+    """
+    If stopShort is True, return the number of options before the last guess
+    If stopShort is False, return whether or not we get the word ultimately (boolean)
+    """
     # seed trials for consistency, maybe?
     if seed:
         np.random.seed(seed)
@@ -154,9 +193,16 @@ def trial(word=None, seed=None, nGuess = 6, length=5, stopShort=True, guess_func
     if not word:
         idx = np.random.choice(len(slv.wordArr0))
         word = slv.wordArr0[idx]
+    logging.warn(word)
 
     slv.submitter = lambda guess: compare(word, guess)
-    return len(slv.run(getOptionsLeft=True))
+
+    if stopShort:
+        wordArr = slv.run(getOptionsLeft=True, debugger=debugger)
+        return len(wordArr)
+    else:
+        slv.run(debugger=debugger)
+        return slv.final_word is not None
 
 
 ############################################################
@@ -197,7 +243,7 @@ class Solver:
         self.final_word = None
 
 
-    def run(self, seed=None, getOptionsLeft=False):
+    def run(self, seed=None, getOptionsLeft=False, debugger=False):
         # Some guess funcs (e.g. randomGuess) have randomness, so
         # seed the rng for consistency
         if seed:
@@ -206,7 +252,8 @@ class Solver:
         fs = FilterSet()
         wordArr = self.wordArr0
         for guess_num in range(self.guesses):
-            #import pdb; pdb.set_trace()
+            if debugger:
+                import pdb; pdb.set_trace()
 
             while True:
                 # Get a guess and submit it
