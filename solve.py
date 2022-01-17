@@ -1,167 +1,31 @@
-#!/Users/akshayyeluri/anaconda3/bin/python
+#!/Users/akshayyeluri/anaconda3/envs/web_bots/bin/python
+from web_interface import WebInterface, BIG_SLEEP
+from filt import FilterSet
+from res import Res, VALID_RES, filtersFromRes
+import guess
+
 import os
-import numpy as np
 import logging
 from argparse import ArgumentParser
-from web_interface import WebInterface, BIG_SLEEP
-from filt import *
-from enum import Enum
 import time
-from pprint import pprint
-from tqdm import tqdm
-import itertools
 
-DATA_ROOT = "/Users/akshayyeluri/code/sandbox/wordle"
-OUT_FORMAT = "length{}.txt"
+import numpy as np
+
+# Retrieve the full set of guess func options from the guess module
+GUESS_FUNCS = {func_name: getattr(guess, func_name) for func_name in dir(guess)
+               if func_name[-len("Guesser"):] == "Guesser"}
+
+# The default guessing function (should be the best one)
+DEFAULT_GUESS_FUNC = "scrabbleGuesser"
+
+FNAME = "data/length{}.txt"
 MAX_WEB_RETRIEVE_RETRIES = 3
 
-def load_arr(length, root=DATA_ROOT, out_format=OUT_FORMAT):
-    """ Load a wordArr """
-    with open(os.path.join(root, out_format.format(length)), 'r') as f:
+def load_words(length, fname=FNAME):
+    """ Load the list of words """
+    with open(fname.format(length), 'r') as f:
         wordArr = [l.strip() for l in f.readlines()]
     return wordArr
-
-
-class Res(Enum):
-    """
-    Encodes possible results for each letter in a guess,
-    submit_funcs return a list of these
-    """
-    CORRECT = 2
-    PRESENT = 1
-    ABSENT = 0
-    TBD = 3
-    EMPTY = 4
-
-# Only the following are reasonable results the web should give, others
-# mean something went wrong with the web interface (likely need to
-# make the web interface sleep longer because it moved too fast for the website
-# to keep up)
-VALID_RES = [Res.CORRECT, Res.ABSENT, Res.PRESENT]
-
-def filtersFromRes(res, guess):
-    """
-    Given a res from a submit_func, and a guess from a guess_func, this
-    compares the two and returns a filterset according to how the res did.
-    """
-    lower_bounds = defaultdict(int)
-    upper_bounds = defaultdict(int)
-    must_not_be = defaultdict(set)
-    must_be = defaultdict(set)
-
-    # Have to go through the matches first, then the presents, then absents
-    inds = sorted(range(len(res)), key=lambda x: res[x].value, reverse=True)
-    res = np.array(res)[inds]
-    guess = np.array(list(guess))[inds]
-
-    for i, (v,c) in enumerate(zip(res, guess)):
-        idx = inds[i]
-        if v == Res.CORRECT:
-            lower_bounds[c] += 1
-            must_be[c].add(idx)
-        elif v == Res.PRESENT:
-            lower_bounds[c] += 1
-            must_not_be[c].add(idx)
-        elif v == Res.ABSENT:
-            upper_bounds[c] = lower_bounds.get(c,0)
-            must_not_be[c].add(idx)
-
-    fs = FilterSet([LowerBound(c,v) for c,v in lower_bounds.items()])
-    fs.update([UpperBound(c,v) for c,v, in upper_bounds.items()])
-    fs.update([HasLetterAt(c,idx) for c,idxes in must_be.items() for idx in idxes])
-    fs.update([NoLetterAt(c,idx) for c,idxes in must_not_be.items() 
-                               for idx in idxes if lower_bounds[c] > 0])
-    return fs
-
-
-############################################################
-# Guess funcs (funcs that take a wordArr and return a word)
-############################################################
-
-def hardCodeGuess(number2GuessMap={}):
-    """
-    Decorator that hard codes a specific guess for a specific
-    guess number
-    """
-    def decorator(guess_func):
-        def wrapped(wordArr, guess_num, **kw):
-            if guess_num in number2GuessMap:
-                return number2GuessMap[guess_num]
-            return guess_func(wordArr, guess_num=guess_num, **kw)
-        return wrapped
-    return decorator
-
-def randomGuess(wordArr, **kw):
-    """ Choose a random word in wordArr as the guess """
-    return wordArr[np.random.choice(len(wordArr))]
-
-
-def interactiveGuess(wordArr, **kw):
-    """ Asks the user to choose a word interactively from wordArr """
-    words = [''.join(word) for word in wordArr]
-
-    print(f'There are {len(words)} options to choose from.')
-
-    opt_in = input('Would you like to see the options? (y/n): ')
-    opt_in = opt_in in ('y', 'Y', 'yes', 'Yes')
-    if opt_in:
-        pprint(words)
-
-    guess = input('Enter the word you want to guess, with no spaces, '
-                  f'making sure it is {len(wordArr[0])} letters long: ')
-
-    return guess
-
-
-
-SCRABBLE_VALS = {
-    1: "AEILNORSTU",
-    2: "DG",
-    3: "BCMP",
-    4: "FHVWY",
-    5: "K",
-    8: "JX",
-    10: "QZ",
-}
-
-SCRABBLE_PTS = {letter:val for val,lets in SCRABBLE_VALS.items() for letter in lets}
-COMMONALITY_METRIC = lambda l: max(SCRABBLE_VALS) + 1 - SCRABBLE_PTS[l]
-
-
-@hardCodeGuess(number2GuessMap={ 0: "alien", 1: "torus" })
-def scrabbleGuess(wordsArr, fs=None, guess_num=0,
-                  info_already_penalty=[1/3, 1/3, 1/3, 1/3, 1, 1],
-                  **kw):
-    letter_info = set([filt.letter for filt in fs])
-    info_penalty = info_already_penalty[guess_num]
-
-    def word_scorer(word):
-        lets = sorted(set(word.upper()))
-        terms = [COMMONALITY_METRIC(letter) for letter in lets]
-        penalties = [info_penalty if letter in letter_info else 1 for letter in lets]
-        return sum([t * p for t,p in zip(terms, penalties)])
-
-    return max(wordsArr, key=word_scorer)
-
-
-@hardCodeGuess(number2GuessMap={ 0: "alien", 1: "torus"})
-def minOptionGuess(wordArr, fs=None, do_max_not_avg=False, verbose=False, **kw):
-    opts = [0] * len(wordArr)
-    length = len(wordArr[0])
-    func = np.max if do_max_not_avg else np.mean
-
-    iterable = enumerate(wordArr)
-    if verbose:
-        iterable = tqdm(iterable, total=len(wordArr))
-    for i, word in iterable:
-        cnts = []
-        for res in itertools.product(VALID_RES, repeat=length):
-            fs2 = FilterSet(fs.copy())
-            fs2.update(filtersFromRes(res, word))
-            cnts.append(len(fs2.applyAll(wordArr)))
-        opts[i] = func(cnts)
-
-    return wordArr[np.argmin(opts)]
 
 
 ############################################################
@@ -169,7 +33,7 @@ def minOptionGuess(wordArr, fs=None, do_max_not_avg=False, verbose=False, **kw):
 # and return the result as a list of Res values)
 ############################################################
 
-def interactiveSubmit(guess):
+def interactiveSubmitter(guess):
     """
     A submit func that essentially waits for user input.
     It tells you the guess, and then you, the user, tells it
@@ -214,16 +78,49 @@ def compare(known, guess):
 
 
 ############################################################
-# Stuff just for testing
+# Testing code (only used for evaluating how different 
+# guess funcs perform really)
 ############################################################
 
-# TODO: document
-# TODO: words not in wordlst handling
 def trial(word=None, seed=None, nGuess = 6, length=5, stopShort=True, guess_func=None, debugger=False, **kw):
     """
-    If stopShort is True, return the number of options before the last guess
-    If stopShort is False, return whether or not we get the word ultimately (boolean)
+    Run a single trial where a solver tries to guess a word
+
+    @param word: 
+        The word to guess, will be randomly chosen from the solvers
+        starting word list if None
+
+    @param seed:
+        A random seed to use if working with a solver that has randomness
+        (also in choosing a word if word=None)
+
+    @param nGuess:
+        The number of guesses the solver gets to guess the word
+
+    @param length:
+        The length of the word to guess, meaningless if word is not None
+
+    @param stopShort:
+        Set this to True to stop one short of nGuess and return the number
+        of options left, set to False to return just a boolean for
+        whether the solver got the word or not
+
+    @param guess_func:
+        A particular guess_func to use from guess.py
+
+    @param debugger:
+        Set to True to stop in the solver after each guess
+
+    @param **kw:
+        Other kwargs to pass to the solver / guess_function
+
+    @return:
+        nOptionsLeft OR didSolverGuessWord, an integer / boolean respectively
+        giving the number of options before the last guess / whether the solver
+        got the word. Returns nOptionsLeft if stopShort = True, else 
+        didSolverGuessWord.
     """
+
     # seed trials for consistency, maybe?
     if seed:
         np.random.seed(seed)
@@ -250,14 +147,14 @@ def trial(word=None, seed=None, nGuess = 6, length=5, stopShort=True, guess_func
 
 
 ############################################################
-# The Machinery for actually running
+# The Solver class itself
 ############################################################
 
 class Solver:
 
     def __init__(self,
                  submit_func=None,
-                 guess_func=interactiveGuess,
+                 guess_func=None,
                  uses_web_interface=True,
                  length=5, guesses=6):
 
@@ -282,7 +179,8 @@ class Solver:
         # Use whatever guesser we're given
         self.guesser = guess_func
 
-        self.wordArr0 = load_arr(self.length)
+        # Load the words we care about
+        self.wordArr0 = load_words(self.length)
 
         self.final_word = None
 
@@ -306,7 +204,6 @@ class Solver:
                 guess = self.guesser(wordArr, fs=fs, guess_num=guess_num, **kw)
                 res = self.submitter(guess)
 
-                # TODO: remove numpy
                 if all([result in VALID_RES for result in res]):
                     guesses.append(guess)
                     resses.append(res)
@@ -315,7 +212,7 @@ class Solver:
                 # if bad, remove from wordArr, call submitter with clear=True,
                 # and logging.warn it, then try again
                 else:
-                    logging.warn(f"{''.join(guess)} is not in wordle, please remove from corpus.")
+                    logging.warning(f"{''.join(guess)} is not in wordle, please remove from corpus.")
                     if self.wi is not None:
                         self.wi.clearGuess()
                     if guess in wordArr:
@@ -325,6 +222,10 @@ class Solver:
             fs.update(filtersFromRes(resses[-1], guesses[-1]))
             wordArr = fs.applyAll(wordArr)
 
+            logging.info(f"Guess number: {guess_num}")
+            logging.info(f"Guessed {guesses[-1]}, result was {resses[-1]}")
+            logging.info(f"{len(wordArr)} words left.")
+
             # If we've succeeded, save the final word and leave
             if all([result == Res.CORRECT for result in resses[-1]]):
                 self.final_word = ''.join(guesses[-1])
@@ -333,7 +234,6 @@ class Solver:
         if self.wi is not None:
             self.wi.shutDown()
         return self.final_word if not getOptionsLeft else wordArr
-
 
 
     def submit_web(self, guess):
@@ -353,24 +253,55 @@ class Solver:
         return res
 
 
-
-# TODO: Think through how this stuff actually works lol
 def getArgs():
+    """
+    Parse the arguments
+    """
     p = ArgumentParser(description="Solve wordle")
-    # TODO: Implement this
-    #p.add_argument('--length', default=5, type=int,
-    #        help='Length of the word to guess')
-    #p.add_argument('--guesses', default=6, type=int,
-    #        help='Number of guesses to find the word')
+    p.add_argument('--guess_func', default=DEFAULT_GUESS_FUNC,
+                   help="The function to use while guessing, options are: " +
+                        ", ".join(GUESS_FUNCS.keys()))
+    p.add_argument('--no_use_web', action="store_true",
+                   help="Don't use the web interface and instead manually enter the "
+                        "results of each guess.")
+    p.add_argument('--debug', action="store_true",
+                   help="Pull up a debugger after every guess from the solver.")
+    p.add_argument('--seed', default=42, type=int,
+                   help="Random seed for nondeterministic guess functions.")
+    p.add_argument('--nGuess', default=6, type=int,
+                   help="Number of guesses the solver will get to find the word (only matters if no_use_web).")
+    p.add_argument('--length', default=5, type=int,
+                   help="Length of the words solver will be guessing (only matters if no_use_web).")
     p.add_argument('-l', '--log', default='WARNING',
             help='Log level, one of [DEBUG, INFO, WARNING, ERROR, CRITICAL')
     return p.parse_args()
 
 
 def main():
+    """
+    Run a solver with arguments parsed from CLI
+    """
     args = getArgs()
     logging.basicConfig(level=getattr(logging, args.log),
                         format='[%(asctime)s | %(name)s | %(levelname)s]: %(message)s')
+
+    submit_func = None
+    if args.no_use_web:
+        submit_func = interactiveSubmitter
+
+    guess_func = GUESS_FUNCS[DEFAULT_GUESS_FUNC]
+    if args.guess_func in GUESS_FUNCS:
+        guess_func = GUESS_FUNCS[args.guess_func]
+
+    slv = Solver(submit_func=submit_func, guess_func=guess_func,
+                 uses_web_interface = (not args.no_use_web),
+                 length = args.length, guesses = args.nGuess)
+
+    final_word = slv.run(seed=args.seed, debugger=args.debug, getOptionsLeft=False)
+    if final_word is not None:
+        print(f"Final word: {final_word}")
+    else:
+        print(f"Unable to solve!")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
-from solve import OUT_FORMAT
-
 BASE_FNAME = "full_dict.txt"
+OUT_FORMAT = "length{}.txt"
 
 def main():
     fs = {}

@@ -1,3 +1,7 @@
+"""
+A simple spelling bee solver to demonstrate the versatility of filter sets
+and stuff.
+"""
 import os
 import itertools
 from filt import *

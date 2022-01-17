@@ -1,14 +1,22 @@
-# Make sure to use web_bots virtual-env with selenium
+"""
+A module defining the web interface for the solver.
+
+The web interface is the code that loads up the wordle website, submits guesses
+to the site, and fetches the results of the guesses.
+
+NOTE: Need to pip/conda install selenium and webdriver_manager to use this,
+will also download a web driver for chrome to use properly
+"""
 import logging
 import time
 
 from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
 
+URL = 'https://www.powerlanguage.co.uk/wordle/'
 WEBDRIVER_PATH = "/Users/akshayyeluri/.wdm/drivers/chromedriver/mac64/97.0.4692.71/chromedriver"
 BIG_SLEEP  = 1   # Big sleeps are to be used for waiting for things like popups
 SMOL_SLEEP = 0.1 # Smol sleeps are to be used for things like entering letters
-
 
 class WebInterface:
     """
@@ -16,7 +24,7 @@ class WebInterface:
     and telling you how those guesses did.
     """
 
-    def __init__(self, url='https://www.powerlanguage.co.uk/wordle/'):
+    def __init__(self, url=URL):
         self.url = url
 
         self._browser = self._getBrowser()
