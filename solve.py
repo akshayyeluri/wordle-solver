@@ -44,9 +44,33 @@ def filtersFromRes(res, guess):
     Given a res from a submit_func, and a guess from a guess_func, this
     compares the two and returns a filterset according to how the res did.
     """
-    fs = FilterSet([(HasLetterInPlace(c, i) if v == Res.CORRECT else
-                    (HasLetter(c) if v == Res.PRESENT else NoLetter(c)))
-                    for i, (v,c) in enumerate(zip(res, guess))])
+    lower_bounds = defaultdict(int)
+    upper_bounds = defaultdict(int)
+    must_not_be = defaultdict(set)
+    must_be = defaultdict(set)
+
+    # Have to go through the matches first, then the presents, then absents
+    inds = sorted(range(len(res)), key=lambda x: res[x].value, reverse=True)
+    res = np.array(res)[inds]
+    guess = np.array(list(guess))[inds]
+
+    for i, (v,c) in enumerate(zip(res, guess)):
+        idx = inds[i]
+        if v == Res.CORRECT:
+            lower_bounds[c] += 1
+            must_be[c].add(idx)
+        elif v == Res.PRESENT:
+            lower_bounds[c] += 1
+            must_not_be[c].add(idx)
+        elif v == Res.ABSENT:
+            upper_bounds[c] = lower_bounds.get(c,0)
+            must_not_be[c].add(idx)
+
+    fs = FilterSet([LowerBound(c,v) for c,v in lower_bounds.items()])
+    fs.update([UpperBound(c,v) for c,v, in upper_bounds.items()])
+    fs.update([HasLetterAt(c,idx) for c,idxes in must_be.items() for idx in idxes])
+    fs.update([NoLetterAt(c,idx) for c,idxes in must_not_be.items() 
+                               for idx in idxes if lower_bounds[c] > 0])
     return fs
 
 
@@ -121,12 +145,15 @@ def scrabbleGuess(wordsArr, fs=None, guess_num=0,
 
 
 @hardCodeGuess(number2GuessMap={ 0: "alien", 1: "torus"})
-def minOptionGuess(wordArr, fs=None, do_max_not_avg=False, **kw):
+def minOptionGuess(wordArr, fs=None, do_max_not_avg=False, verbose=False, **kw):
     opts = [0] * len(wordArr)
     length = len(wordArr[0])
     func = np.max if do_max_not_avg else np.mean
 
-    for i, word in tqdm(enumerate(wordArr), total=len(wordArr)):
+    iterable = enumerate(wordArr)
+    if verbose:
+        iterable = tqdm(iterable, total=len(wordArr))
+    for i, word in iterable:
         cnts = []
         for res in itertools.product(VALID_RES, repeat=length):
             fs2 = FilterSet(fs.copy())
@@ -165,6 +192,24 @@ def compare(known, guess):
     guess, known = np.char.array(list(guess)), np.char.array(list(known))
     res = np.where(np.isin(guess, known), Res.PRESENT, Res.ABSENT)
     res[guess == known] = Res.CORRECT
+
+    # Sometimes, e.g. word is curve, guess=kurre, we get too many PRESENTs,
+    # because the first r matches, and the second says present.
+    # We want to rectify these
+    for letter in known:
+        cnt = (known == letter).sum()
+        present_inds = [idx for idx,(g,token) in enumerate(zip(guess, res)) 
+                            if (g == letter and token == Res.PRESENT)]
+        correct_inds = [idx for idx,(g,token) in enumerate(zip(guess, res)) 
+                            if (g == letter and token == Res.CORRECT)]
+
+        mistaken_present = (len(present_inds) + len(correct_inds)) - cnt
+        if mistaken_present == 0:
+            continue
+
+        for idx in present_inds[-mistaken_present:]:
+            res[idx] = Res.ABSENT
+
     return list(res)
 
 
@@ -174,7 +219,7 @@ def compare(known, guess):
 
 # TODO: document
 # TODO: words not in wordlst handling
-def trial(word=None, seed=None, nGuess = 6, length=5, stopShort=True, guess_func=None, debugger=False):
+def trial(word=None, seed=None, nGuess = 6, length=5, stopShort=True, guess_func=None, debugger=False, **kw):
     """
     If stopShort is True, return the number of options before the last guess
     If stopShort is False, return whether or not we get the word ultimately (boolean)
@@ -193,15 +238,14 @@ def trial(word=None, seed=None, nGuess = 6, length=5, stopShort=True, guess_func
     if not word:
         idx = np.random.choice(len(slv.wordArr0))
         word = slv.wordArr0[idx]
-    logging.warn(word)
 
     slv.submitter = lambda guess: compare(word, guess)
 
     if stopShort:
-        wordArr = slv.run(getOptionsLeft=True, debugger=debugger)
+        wordArr = slv.run(getOptionsLeft=True, debugger=debugger, **kw)
         return len(wordArr)
     else:
-        slv.run(debugger=debugger)
+        slv.run(debugger=debugger, **kw)
         return slv.final_word is not None
 
 
@@ -243,7 +287,7 @@ class Solver:
         self.final_word = None
 
 
-    def run(self, seed=None, getOptionsLeft=False, debugger=False):
+    def run(self, seed=None, getOptionsLeft=False, debugger=False, **kw):
         # Some guess funcs (e.g. randomGuess) have randomness, so
         # seed the rng for consistency
         if seed:
@@ -251,18 +295,23 @@ class Solver:
 
         fs = FilterSet()
         wordArr = self.wordArr0
+        guesses, resses = [], []
+
         for guess_num in range(self.guesses):
             if debugger:
                 import pdb; pdb.set_trace()
 
             while True:
                 # Get a guess and submit it
-                guess = self.guesser(wordArr, fs=fs, guess_num=guess_num)
+                guess = self.guesser(wordArr, fs=fs, guess_num=guess_num, **kw)
                 res = self.submitter(guess)
 
                 # TODO: remove numpy
                 if all([result in VALID_RES for result in res]):
+                    guesses.append(guess)
+                    resses.append(res)
                     break
+
                 # if bad, remove from wordArr, call submitter with clear=True,
                 # and logging.warn it, then try again
                 else:
@@ -273,12 +322,12 @@ class Solver:
                         wordArr.remove(guess)
 
             # filter the words list using the new info we learned
-            fs.update(filtersFromRes(res, guess))
+            fs.update(filtersFromRes(resses[-1], guesses[-1]))
             wordArr = fs.applyAll(wordArr)
 
             # If we've succeeded, save the final word and leave
-            if all([result == Res.CORRECT for result in res]):
-                self.final_word = ''.join(guess)
+            if all([result == Res.CORRECT for result in resses[-1]]):
+                self.final_word = ''.join(guesses[-1])
                 break
 
         if self.wi is not None:

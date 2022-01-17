@@ -17,49 +17,41 @@ class Filter:
         a numpy boolean vector of shape nWords saying which words meet the filter
         """
         pass
-    def __init__(self, letter):
+    def __init__(self, letter, num):
+        """
+        Letter is the letter the filter applies to,
+        num is either an idx or a count
+        """
         assert (isinstance(letter, str) and len(letter) == 1)
+        assert (isinstance(num, int))
         letter = letter.lower()
         self.letter = letter
+        self.num = num
     def __eq__(self, other):
-        return self.letter == other.letter
+        return type(self) == type(other) and self.letter == other.letter and self.num == other.num
     def __hash__(self):
-        return hash(self.letter)
+        return hash((self.letter, self.num))
     def __repr__(self):
-        return type(self).__name__ + f"({self.letter})"
+        return type(self).__name__ + f"({self.letter}, {self.num})"
 
-class NoLetter(Filter):
+class LowerBound(Filter):
     def __call__(self, wordArr):
-        return (wordArr != self.letter).all(axis=1)
+        return (wordArr == self.letter).sum(axis=1) >= self.num
 
-class HasLetter(Filter):
+class UpperBound(Filter):
     def __call__(self, wordArr):
-        return (wordArr == self.letter).any(axis=1)
+        return (wordArr == self.letter).sum(axis=1) <= self.num
 
-class HasLetterInPlace(Filter):
-    def __init__(self, letter, idx):
-        super(HasLetterInPlace, self).__init__(letter)
-        self.idx = idx
+class HasLetterAt(Filter):
     def __call__(self, wordArr):
-        return (wordArr[:, self.idx] == self.letter)
-    def __eq__(self, other):
-        return self.letter == other.letter and self.idx == other.idx
-    def __hash__(self):
-        return hash((self.letter, self.idx))
-    def __repr__(self):
-        return type(self).__name__ + f"({self.letter}, {self.idx})"
+        return (wordArr[:, self.num] == self.letter)
+
+class NoLetterAt(Filter):
+    def __call__(self, wordArr):
+        return (wordArr[:, self.num] != self.letter)
 
 class FilterSet(set):
-    def cleanUp(self):
-        has_letters = set([filt.letter for filt in self
-                           if isinstance(filt, (HasLetter, HasLetterInPlace))])
-        bad_no_filts = [filt for filt in self if
-                        isinstance(filt, NoLetter) and filt.letter in has_letters]
-        for filt in bad_no_filts:
-            self.remove(filt)
-
     def applyAll(self, wordArr):
-        self.cleanUp()
         wordArr_np = np.char.array([list(word) for word in wordArr])
         idx = reduce(lambda x,y: x & y, [filt(wordArr_np) for filt in self], True)
         return [''.join(word) for word in wordArr_np[idx]]
